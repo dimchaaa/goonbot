@@ -4,7 +4,6 @@ import discord
 from discord.ext import commands, tasks
 import asyncio
 import time
-from replit import db
 import os
 
 app = Flask('')
@@ -29,6 +28,8 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 GUILD_ID = 1197119892806176838
 ROLE_ID = 1387769609188540537
 
+os.makedirs('./db', exist_ok=True)
+
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
@@ -38,30 +39,32 @@ async def on_ready():
 async def check_expired_roles():
     current_time = time.time()
     expired_users = []
-    for key in db.keys():
-        if key.startswith("role_expiry_"):
-            user_id = int(key.replace("role_expiry_", ""))
-            expiry_time = db[key]
+    
+    for filename in os.listdir('./db'):
+        if filename.startswith("role_expiry_"):
+            user_id = int(filename.replace("role_expiry_", ""))
+            with open(f'./db/{filename}', 'r') as f:
+                expiry_time = float(f.read())
             if current_time >= expiry_time:
                 expired_users.append(user_id)
+
+    guild = bot.get_guild(GUILD_ID)
+    role = guild.get_role(ROLE_ID)
+
     for user_id in expired_users:
-        guild = bot.get_guild(GUILD_ID)
         member = guild.get_member(user_id)
-        role = guild.get_role(ROLE_ID)
-        if member and role and role in member.roles:
+        if member and role in member.roles:
             try:
                 await member.remove_roles(role)
                 print(f"Removed expired role from {member.name}")
                 try:
-                    channel = member.dm_channel
-                    if channel is None:
-                        channel = await member.create_dm()
+                    channel = await member.create_dm()
                     await channel.send("Your goonkey access has expired.")
                 except:
                     pass
             except Exception as e:
                 print(f"Error removing role from {member.name}: {str(e)}")
-        del db[f"role_expiry_{user_id}"]
+        os.remove(f'./db/role_expiry_{user_id}')
 
 async def delete_after_delay(ctx, reply):
     await asyncio.sleep(5)
@@ -79,14 +82,16 @@ async def lockg00nchannel(ctx):
     guild = bot.get_guild(GUILD_ID)
     member = guild.get_member(ctx.author.id)
     role = guild.get_role(ROLE_ID)
+
     if not member or not role:
         reply = await ctx.send("Could not find member or role.")
     elif role not in member.roles:
         reply = await ctx.send(f"{ctx.author.mention}, you don't have the goonkey role.")
     else:
         await member.remove_roles(role)
-        if f"role_expiry_{ctx.author.id}" in db:
-            del db[f"role_expiry_{ctx.author.id}"]
+        db_path = f'./db/role_expiry_{ctx.author.id}'
+        if os.path.exists(db_path):
+            os.remove(db_path)
         reply = await ctx.send(f"{ctx.author.mention}, your goonkey role has been removed.")
     await delete_after_delay(ctx, reply)
 
@@ -95,11 +100,14 @@ async def unlockg00nchannel(ctx):
     guild = bot.get_guild(GUILD_ID)
     member = guild.get_member(ctx.author.id)
     role = guild.get_role(ROLE_ID)
+
     if not member or not role:
         reply = await ctx.send("Could not find member or role.")
     else:
         await member.add_roles(role)
-        db[f"role_expiry_{ctx.author.id}"] = time.time() + (15 * 60)
+        expiry_time = time.time() + (15 * 60)
+        with open(f'./db/role_expiry_{ctx.author.id}', 'w') as f:
+            f.write(str(expiry_time))
         reply = await ctx.send(f"{ctx.author.mention}, you now have the goonkey role for 15 minutes!")
     await delete_after_delay(ctx, reply)
 
